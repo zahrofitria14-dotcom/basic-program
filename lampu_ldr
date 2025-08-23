@@ -1,0 +1,60 @@
+// Pin configuration for ESP32
+const int ldrPin = 34;       // LDR to GPIO34 (ADC1 channel 6, input only)
+const int led1 = 13;         
+const int led2 = 12;         
+const int led3 = 14;         
+
+// Threshold cahaya
+const int thresholdTerang = 300;   // Nilai di atas ini dianggap terang
+const int thresholdGelap  = 250;   // Nilai di bawah ini dianggap gelap
+const int delayTime = 300;
+
+bool kondisiGelap = false;   // status kondisi
+bool sudahJalan   = false;   // supaya pola cuma sekali jalan
+
+void setup() {
+  pinMode(led1, OUTPUT);
+  pinMode(led2, OUTPUT);
+  pinMode(led3, OUTPUT);
+  Serial.begin(115200);
+}
+
+void loop() {
+  int ldrValue = analogRead(ldrPin);
+  Serial.println(ldrValue);
+
+  // logika histeresis (anti flicker)
+  if (ldrValue < thresholdGelap) {
+    kondisiGelap = true;     // gelap
+  } else if (ldrValue > thresholdTerang) {
+    kondisiGelap = false;    // terang
+    sudahJalan = false;      // reset biar nanti bisa jalan lagi
+  }
+
+  // Kalau gelap dan belum jalan → jalankan pola sekali
+  if (kondisiGelap && !sudahJalan) {
+    // LED sequence
+    digitalWrite(led1, HIGH);
+    delay(delayTime);
+
+    digitalWrite(led2, HIGH);
+    delay(delayTime);
+
+    digitalWrite(led3, HIGH);
+    delay(delayTime);
+
+    // Setelah selesai biarkan semua LED tetap menyala
+    digitalWrite(led1, HIGH);
+    digitalWrite(led2, HIGH);
+    digitalWrite(led3, HIGH);
+
+    sudahJalan = true;
+  }
+
+  // Kalau terang → matikan semua LED
+  if (!kondisiGelap) {
+    digitalWrite(led1, LOW);
+    digitalWrite(led2, LOW);
+    digitalWrite(led3, LOW);
+  }
+}
