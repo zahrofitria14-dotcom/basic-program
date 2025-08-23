@@ -1,0 +1,109 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <ESP32Servo.h>
+
+// Pin RFID
+#define SS_PIN 5
+#define RST_PIN 22
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+
+// Servo
+Servo servoMasuk;
+Servo servoKeluar;
+#define SERVO_MASUK 18
+#define SERVO_KELUAR 19
+
+// Variabel slot parkir
+int kapasitas = 10;
+int terpakai = 0;
+
+// Daftar UID kartu RFID yang valid
+String kartuValid[] = {
+  "D3 8B 2A 1F", // ganti sesuai UID kartu kamu
+  "9A C1 45 7B"
+};
+bool statusKartu[2] = {false, false};  
+// false = di luar, true = sedang di dalam
+
+int jumlahKartu = sizeof(kartuValid) / sizeof(kartuValid[0]);
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();
+  mfrc522.PCD_Init();
+
+  // Servo palang
+  servoMasuk.attach(SERVO_MASUK);
+  servoKeluar.attach(SERVO_KELUAR);
+  servoMasuk.write(0);   // posisi tertutup
+  servoKeluar.write(0);  // posisi tertutup
+
+  Serial.println("Sistem Parkir Otomatis dengan ESP32 + RFID + 2 Servo");
+  Serial.print("Slot tersedia: ");
+  Serial.println(kapasitas - terpakai);
+}
+
+void loop() {
+  // Tunggu kartu RFID
+  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  // Baca UID kartu
+  String uid = "";
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+    uid += String(mfrc522.uid.uidByte[i], HEX);
+    if (i < mfrc522.uid.size - 1) uid += " ";
+  }
+  uid.toUpperCase();
+
+  Serial.print("Kartu Terdeteksi UID: ");
+  Serial.println(uid);
+
+  int index = cekKartu(uid);
+  if (index != -1) {
+    if (!statusKartu[index]) {
+      // Jika kartu sedang di luar → coba masuk
+      if (terpakai < kapasitas) {
+        terpakai++;
+        statusKartu[index] = true;
+        Serial.println("Akses DITERIMA: Kendaraan MASUK");
+        bukaPalang(servoMasuk);
+      } else {
+        Serial.println("Parkiran PENUH, palang TIDAK terbuka");
+      }
+    } else {
+      // Jika kartu sedang di dalam → keluar
+      if (terpakai > 0) {
+        terpakai--;
+        statusKartu[index] = false;
+        Serial.println("Kendaraan KELUAR");
+        bukaPalang(servoKeluar);
+      }
+    }
+  } else {
+    Serial.println("Kartu TIDAK TERDAFTAR");
+  }
+
+  Serial.print("Slot tersedia: ");
+  Serial.println(kapasitas - terpakai);
+
+  // Hentikan komunikasi dengan kartu
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+}
+
+int cekKartu(String id) {
+  for (int i = 0; i < jumlahKartu; i++) {
+    if (id == kartuValid[i]) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void bukaPalang(Servo &servo) {
+  servo.write(90); // buka
+  delay(3000);
+  servo.write(0);  // tutup lagi
+}
