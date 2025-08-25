@@ -1,0 +1,81 @@
+#include <Servo.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+Servo servo1;
+Servo servo2;
+
+#define in 3
+#define out 4
+#define servo_in 5
+#define servo_out 6
+
+int jml_mobil = 0;
+int slot_mobil = 4;
+int jml_mobil_max = 4;
+
+void setup()
+{
+  servo1.attach(5);
+  servo2.attach(6);
+  lcd.begin(); // Beggining the lcd
+  lcd.backlight();
+  servo1.write(0);
+  servo2.write(0);
+  
+  lcd.setCursor(2,0);
+  lcd.print("Sistem Parkir"); 
+  lcd.setCursor(4,1);
+  lcd.print("Otomatis");
+  delay(3000);
+  pinMode(in,INPUT);
+  pinMode(out,INPUT);
+  lcd.clear();
+  lcd.print("Slot Parkir : ");  
+  lcd.print(slot_mobil);
+}
+
+void loop()
+{  
+  int in_value = digitalRead(in); 
+  int out_value = digitalRead(out); 
+  
+  if(in_value == LOW && jml_mobil < jml_mobil_max)
+  {
+    jml_mobil++;
+    slot_mobil--;
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Slot Parkir:");
+    lcd.setCursor(0,1);
+    lcd.print(slot_mobil);
+    servo1.write(90);
+    delay(3000);
+    servo1.write(0);
+    delay(1000);
+  }                                                       
+  
+  if(out_value == LOW && jml_mobil > 0)
+  {
+    jml_mobil--;
+    slot_mobil++;
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Slot Parkir:");
+    lcd.setCursor(0,1);
+    lcd.print(slot_mobil);
+    servo2.write(90);
+    delay(3000);
+    servo2.write(0);
+    delay(1000);
+  }
+
+  if(jml_mobil == jml_mobil_max){
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Slot Penuh");
+    delay(1000);
+  }
+  
+                                               
+}
