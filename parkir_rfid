@@ -1,109 +1,120 @@
+/*
+ * RFID RC522 + Servo on ESP32
+ * 
+ * RFID RC522 wiring ke ESP32:
+ * SDA  -> GPIO5
+ * SCK  -> GPIO18
+ * MOSI -> GPIO23
+ * MISO -> GPIO19
+ * RST  -> GPIO27
+ * 3.3V -> 3.3V
+ * GND  -> GND
+ * 
+ * Servo -> GPIO13 (bisa pilih GPIO lain yang support PWM)
+ */
+
 #include <SPI.h>
 #include <MFRC522.h>
-#include <ESP32Servo.h>
+#include <ESP32Servo.h>   // Library khusus ESP32
 
-// Pin RFID
+// Pin definitions
 #define SS_PIN 5
-#define RST_PIN 22
+#define RST_PIN 27
+#define SERVO_PIN 13
+
+// Buat object RFID & Servo
 MFRC522 mfrc522(SS_PIN, RST_PIN);
+Servo myServo;
 
-// Servo
-Servo servoMasuk;
-Servo servoKeluar;
-#define SERVO_MASUK 18
-#define SERVO_KELUAR 19
+// ===== KONFIGURASI UID KARTU =====
+#define AUTHORIZED_UID_SIZE 4  
+byte authorizedUID[AUTHORIZED_UID_SIZE] = {0xDE, 0xAD, 0xBE, 0xEF}; 
+// Ganti dengan UID kartumu!
+// ================================
 
-// Variabel slot parkir
-int kapasitas = 10;
-int terpakai = 0;
-
-// Daftar UID kartu RFID yang valid
-String kartuValid[] = {
-  "D3 8B 2A 1F", // ganti sesuai UID kartu kamu
-  "9A C1 45 7B"
-};
-bool statusKartu[2] = {false, false};  
-// false = di luar, true = sedang di dalam
-
-int jumlahKartu = sizeof(kartuValid) / sizeof(kartuValid[0]);
+// Variabel timing
+unsigned long lastReadTime = 0;
+const unsigned long READ_INTERVAL = 2000;
 
 void setup() {
   Serial.begin(115200);
-  SPI.begin();
-  mfrc522.PCD_Init();
+  while (!Serial);
 
-  // Servo palang
-  servoMasuk.attach(SERVO_MASUK);
-  servoKeluar.attach(SERVO_KELUAR);
-  servoMasuk.write(0);   // posisi tertutup
-  servoKeluar.write(0);  // posisi tertutup
+  SPI.begin();           
+  mfrc522.PCD_Init();    
+  mfrc522.PCD_DumpVersionToSerial(); 
 
-  Serial.println("Sistem Parkir Otomatis dengan ESP32 + RFID + 2 Servo");
-  Serial.print("Slot tersedia: ");
-  Serial.println(kapasitas - terpakai);
+  // Servo
+  myServo.attach(SERVO_PIN);
+  myServo.write(0); // posisi terkunci
+  delay(1000);
+
+  Serial.println("ESP32 RFID Reader with Servo Ready");
 }
 
 void loop() {
-  // Tunggu kartu RFID
-  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
+  unsigned long currentTime = millis();
+  if (currentTime - lastReadTime < READ_INTERVAL) {
     return;
   }
 
-  // Baca UID kartu
-  String uid = "";
+  if (!mfrc522.PICC_IsNewCardPresent()) return;
+  if (!mfrc522.PICC_ReadCardSerial()) return;
+
+  lastReadTime = currentTime;
+
+  Serial.print("UID tag :");
+  String content = "";
+  byte readCard[7];
+
   for (byte i = 0; i < mfrc522.uid.size; i++) {
-    uid += String(mfrc522.uid.uidByte[i], HEX);
-    if (i < mfrc522.uid.size - 1) uid += " ";
+    Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
+    Serial.print(mfrc522.uid.uidByte[i], HEX);
+    content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
+    content.concat(String(mfrc522.uid.uidByte[i], HEX));
+    readCard[i] = mfrc522.uid.uidByte[i];
   }
-  uid.toUpperCase();
+  Serial.println();
 
-  Serial.print("Kartu Terdeteksi UID: ");
-  Serial.println(uid);
-
-  int index = cekKartu(uid);
-  if (index != -1) {
-    if (!statusKartu[index]) {
-      // Jika kartu sedang di luar → coba masuk
-      if (terpakai < kapasitas) {
-        terpakai++;
-        statusKartu[index] = true;
-        Serial.println("Akses DITERIMA: Kendaraan MASUK");
-        bukaPalang(servoMasuk);
-      } else {
-        Serial.println("Parkiran PENUH, palang TIDAK terbuka");
-      }
-    } else {
-      // Jika kartu sedang di dalam → keluar
-      if (terpakai > 0) {
-        terpakai--;
-        statusKartu[index] = false;
-        Serial.println("Kendaraan KELUAR");
-        bukaPalang(servoKeluar);
-      }
-    }
+  if (checkUID(readCard)) {
+    Serial.println("Authorized card detected!");
+    activateServo();
   } else {
-    Serial.println("Kartu TIDAK TERDAFTAR");
+    Serial.println("Unauthorized card!");
+    denyAccess();
   }
 
-  Serial.print("Slot tersedia: ");
-  Serial.println(kapasitas - terpakai);
-
-  // Hentikan komunikasi dengan kartu
   mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
 }
 
-int cekKartu(String id) {
-  for (int i = 0; i < jumlahKartu; i++) {
-    if (id == kartuValid[i]) {
-      return i;
+// Fungsi cek UID
+bool checkUID(byte cardUID[]) {
+  for (byte i = 0; i < AUTHORIZED_UID_SIZE; i++) {
+    if (cardUID[i] != authorizedUID[i]) {
+      return false;
     }
   }
-  return -1;
+  return true;
 }
 
-void bukaPalang(Servo &servo) {
-  servo.write(90); // buka
+// Servo gerak jika kartu valid
+void activateServo() {
+  Serial.println("Access granted - Opening door...");
+  myServo.write(90);
   delay(3000);
-  servo.write(0);  // tutup lagi
+  myServo.write(0);
+  Serial.println("Door closed again.");
+  delay(500);
+}
+
+// Servo getar jika kartu invalid
+void denyAccess() {
+  Serial.println("ACCESS DENIED!");
+  for (int i = 0; i < 3; i++) {
+    myServo.write(20);
+    delay(200);
+    myServo.write(0);
+    delay(200);
+  }
 }
